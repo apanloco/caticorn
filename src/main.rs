@@ -5,9 +5,6 @@ use bevy::window::PrimaryWindow;
 const PLAYER_SPEED: f32 = 600.0;
 const CANDY_SPEED: f32 = 250.0;
 
-const PLAYER_SIZE: f32 = 60.0;
-const CANDY_SIZE: f32 = 32.0;
-
 const NUMBER_OF_INITIAL_CANDIES: usize = 10;
 
 #[derive(Component)]
@@ -29,6 +26,9 @@ impl CandyChangeDirectionSound {
     }
 }
 
+#[derive(Resource, Deref, DerefMut)]
+pub struct CandyCounter(usize);
+
 #[derive(Resource, Deref)]
 pub struct PlayerCandyCollisionSound(Handle<AudioSource>);
 
@@ -38,9 +38,21 @@ pub struct PlayerImage(Handle<Image>);
 #[derive(Resource, Deref)]
 pub struct CandyImage(Handle<Image>);
 
+#[derive(Resource, Deref, DerefMut)]
+pub struct CandySpawnTimer(Timer);
+
+struct Rect {
+    min_x: f32,
+    max_x: f32,
+    min_y: f32,
+    max_y: f32,
+}
+
 fn main() {
     App::new()
         .insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
+        .insert_resource(CandySpawnTimer(Timer::from_seconds(3.0, TimerMode::Repeating)))
+        .insert_resource(CandyCounter(0))
         .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest())) // prevents blurry sprites
         .add_plugins(LogDiagnosticsPlugin::default())
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
@@ -49,11 +61,29 @@ fn main() {
                      (
                          player_movement,
                          candy_movement,
+                         spawn_candy_timer,
                          update_candy_direction.after(candy_movement),
                          player_candy_collision.after(player_movement).after(candy_movement),
                          confine_entity_movement.after(player_candy_collision),
-                     ))
+                     ),
+        )
         .run();
+}
+
+fn calculate_confinement_rect(window: &Window, image: &Image) -> Rect {
+    let half_size = image.size().x / 2.0;
+
+    let min_x = -(window.width() / 2.0) + half_size;
+    let max_x = (window.width() / 2.0) - half_size;
+    let min_y = -(window.height() / 2.0) + half_size;
+    let max_y = (window.height() / 2.0) - half_size;
+
+    Rect {
+        min_x,
+        max_x,
+        min_y,
+        max_y,
+    }
 }
 
 pub fn setup(
@@ -89,25 +119,43 @@ pub fn setup(
     ));
 
     for _ in 0..NUMBER_OF_INITIAL_CANDIES {
-        let random_pos_x = rand::random::<f32>() * window.width() - window.width() / 2.0;
-        let random_pos_y = rand::random::<f32>() * window.height() - window.height() / 2.0;
-        let random_dir_x = rand::random::<f32>();
-        let random_dir_y = rand::random::<f32>();
-
-        commands.spawn((
-            SpriteBundle {
-                transform: Transform::from_xyz(random_pos_x, random_pos_y, 0.0),
-                texture: candy_image.clone(),
-                ..default()
-            },
-            Candy {
-                direction: Vec2::new(random_dir_x, random_dir_y).normalize(),
-            },
-        ));
+        spawn_candy(&mut commands, window, &candy_image);
     }
 
     commands.insert_resource(player_image);
     commands.insert_resource(candy_image);
+}
+
+pub fn spawn_candy_timer(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut timer: ResMut<CandySpawnTimer>,
+    window_query: Query<&Window, With<PrimaryWindow>>,
+    candy_image: Res<CandyImage>,
+) {
+    let window = window_query.get_single().unwrap();
+    timer.tick(time.delta());
+    if timer.just_finished() {
+        spawn_candy(&mut commands, window, &candy_image);
+    }
+}
+
+fn spawn_candy(commands: &mut Commands, window: &Window, candy_image: &CandyImage) {
+    let random_pos_x = rand::random::<f32>() * window.width() - window.width() / 2.0;
+    let random_pos_y = rand::random::<f32>() * window.height() - window.height() / 2.0;
+    let random_dir_x = rand::random::<f32>();
+    let random_dir_y = rand::random::<f32>();
+
+    commands.spawn((
+        SpriteBundle {
+            transform: Transform::from_xyz(random_pos_x, random_pos_y, 0.0),
+            texture: candy_image.0.clone(),
+            ..default()
+        },
+        Candy {
+            direction: Vec2::new(random_dir_x, random_dir_y).normalize(),
+        },
+    ));
 }
 
 pub fn player_movement(
@@ -140,38 +188,61 @@ pub fn player_movement(
     }
 }
 
-pub fn candy_movement(mut q: Query<(&mut Transform, &Candy)>, time: Res<Time>) {
-    //println!("2 {:?}", std::thread::current().id());
-    for (mut transform, candy) in q.iter_mut() {
+pub fn candy_movement(
+    mut candy_query: Query<(&mut Transform, &Candy), With<Candy>>,
+    player_query: Query<&Transform, (With<Player>, Without<Candy>)>,
+    time: Res<Time>,
+) {
+    // println!("2 {:?}", std::thread::current().id());
+    let Ok(player_transform) = player_query.get_single() else {
+        return;
+    };
+    for (mut transform, candy) in candy_query.iter_mut() {
         let direction = Vec3::new(candy.direction.x, candy.direction.y, 0.0);
+        //println!("candy direction: {:?}", &direction);
         transform.translation += direction * CANDY_SPEED * time.delta_seconds();
+
+        let distance = transform.translation.distance(player_transform.translation);
+        if distance < 300.0 {
+            let direction = Vec3::new(transform.translation.x - player_transform.translation.x, transform.translation.y - player_transform.translation.y, 0.0).normalize();
+            let force = 300.0 - distance;
+
+            transform.translation += direction * time.delta_seconds() * force;
+        }
     }
 }
 
 pub fn update_candy_direction(
-    mut q: Query<(&Transform, &mut Candy)>,
+    mut q: Query<(&Transform, &Handle<Image>, &mut Candy)>,
     window_query: Query<&Window, With<PrimaryWindow>>,
     audio: Res<Audio>,
     sound: Res<CandyChangeDirectionSound>,
+    images: Res<Assets<Image>>,
 ) {
 //    println!("3 {:?}", std::thread::current().id());
-    for (transform, mut candy) in q.iter_mut() {
-        let window = window_query.get_single().unwrap();
-        let half_size = CANDY_SIZE / 2.0;
-        let min_x = -(window.width() / 2.0) + half_size;
-        let max_x = (window.width() / 2.0) - half_size;
-        let min_y = -(window.height() / 2.0) + half_size;
-        let max_y = (window.height() / 2.0) - half_size;
+
+    let window = window_query.get_single().unwrap();
+
+    for (transform, image_handle, mut candy) in q.iter_mut() {
+        let Some(image) = images.get(image_handle) else {
+            continue;
+        };
+
+        let rect = calculate_confinement_rect(window, image);
+
         let mut changed_direction = false;
         let pos = transform.translation;
-        if pos.x < min_x || pos.x > max_x {
+
+        if pos.x < rect.min_x || pos.x > rect.max_x {
             candy.direction.x *= -1.0;
             changed_direction = true;
         }
-        if pos.y < min_y || pos.y > max_y {
+
+        if pos.y < rect.min_y || pos.y > rect.max_y {
             candy.direction.y *= -1.0;
             changed_direction = true;
         }
+
         if changed_direction {
             audio.play(sound.select_random());
         }
@@ -181,18 +252,19 @@ pub fn update_candy_direction(
 pub fn confine_entity_movement(
     mut query: Query<(&mut Transform, &Handle<Image>, Option<&Player>)>,
     window_query: Query<&Window, With<PrimaryWindow>>,
+    images: Res<Assets<Image>>,
 ) {
 //    println!("4 {:?}", std::thread::current().id());
+    let window = window_query.get_single().unwrap();
     for (mut transform, image_handle, player) in query.iter_mut() {
-        let window = window_query.get_single().unwrap();
-        let half_size = 32.0 / 2.0;
-        let min_x = -(window.width() / 2.0) + half_size;
-        let max_x = (window.width() / 2.0) - half_size;
-        let min_y = -(window.height() / 2.0) + half_size;
-        let max_y = (window.height() / 2.0) - half_size;
+        let Some(image) = images.get(image_handle) else {
+            continue;
+        };
 
-        transform.translation.x = transform.translation.x.clamp(min_x, max_x);
-        transform.translation.y = transform.translation.y.clamp(min_y, max_y);
+        let rect = calculate_confinement_rect(window, image);
+
+        transform.translation.x = transform.translation.x.clamp(rect.min_x, rect.max_x);
+        transform.translation.y = transform.translation.y.clamp(rect.min_y, rect.max_y);
     }
 }
 
@@ -202,7 +274,6 @@ pub fn player_candy_collision(
     candy_query: Query<(Entity, &Transform), With<Candy>>,
     audio: Res<Audio>,
     sound: Res<PlayerCandyCollisionSound>,
-
 ) {
     // println!("5 {:?}", std::thread::current().id());
     if let Ok((player_entity, player_transform)) = player_query.get_single_mut() {
