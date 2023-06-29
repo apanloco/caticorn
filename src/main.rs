@@ -1,3 +1,14 @@
+// TODO:
+// [X] fix candy continuous spawning
+// [X] fix cat-candy gravity
+// [X] fix candy bounce sound when pressed to wall
+// [ ] gulping sound
+// [ ] win state (press space to retry)
+// [ ] start state (press space to start)
+// [ ] music
+// [ ] spawn candy sound
+// [ ] make cat fatter when eating?
+
 use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
@@ -13,6 +24,7 @@ pub struct Player {}
 #[derive(Component)]
 pub struct Candy {
     pub direction: Vec2,
+    pub timestamp_changed_direction: f32,
 }
 
 #[derive(Resource)]
@@ -71,12 +83,13 @@ fn main() {
 }
 
 fn calculate_confinement_rect(window: &Window, image: &Image) -> Rect {
-    let half_size = image.size().x / 2.0;
+    let half_size_x = image.size().x / 2.0;
+    let half_size_y = image.size().y / 2.0;
 
-    let min_x = -(window.width() / 2.0) + half_size;
-    let max_x = (window.width() / 2.0) - half_size;
-    let min_y = -(window.height() / 2.0) + half_size;
-    let max_y = (window.height() / 2.0) - half_size;
+    let min_x = -(window.width() / 2.0) + half_size_x;
+    let max_x = (window.width() / 2.0) - half_size_x;
+    let min_y = -(window.height() / 2.0) + half_size_y;
+    let max_y = (window.height() / 2.0) - half_size_y;
 
     Rect {
         min_x,
@@ -154,6 +167,7 @@ fn spawn_candy(commands: &mut Commands, window: &Window, candy_image: &CandyImag
         },
         Candy {
             direction: Vec2::new(random_dir_x, random_dir_y).normalize(),
+            timestamp_changed_direction: 0.0,
         },
     ));
 }
@@ -202,10 +216,13 @@ pub fn candy_movement(
         //println!("candy direction: {:?}", &direction);
         transform.translation += direction * CANDY_SPEED * time.delta_seconds();
 
-        let distance = transform.translation.distance(player_transform.translation);
+        let mut distance = transform.translation.distance(player_transform.translation);
         if distance < 300.0 {
+            if distance < 25.0 {
+                distance = 25.0;
+            }
             let direction = Vec3::new(transform.translation.x - player_transform.translation.x, transform.translation.y - player_transform.translation.y, 0.0).normalize();
-            let force = 300.0 - distance;
+            let force = 400.0 - distance;
 
             transform.translation += direction * time.delta_seconds() * force;
         }
@@ -218,6 +235,7 @@ pub fn update_candy_direction(
     audio: Res<Audio>,
     sound: Res<CandyChangeDirectionSound>,
     images: Res<Assets<Image>>,
+    time: Res<Time>,
 ) {
 //    println!("3 {:?}", std::thread::current().id());
 
@@ -244,7 +262,12 @@ pub fn update_candy_direction(
         }
 
         if changed_direction {
-            audio.play(sound.select_random());
+            if time.elapsed_seconds() - candy.timestamp_changed_direction > 0.1 {
+                audio.play(sound.select_random());
+
+            } else {
+            }
+            candy.timestamp_changed_direction = time.elapsed_seconds();
         }
     }
 }
