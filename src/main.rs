@@ -4,7 +4,7 @@
 use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::log::LogPlugin;
 use bevy::prelude::*;
-use bevy::window::PrimaryWindow;
+use bevy::window::{PresentMode, PrimaryWindow, WindowTheme};
 use clap::Parser;
 
 #[derive(Parser, Debug)]
@@ -17,8 +17,8 @@ struct Cli {
 
 const PLAYER_SPEED: f32 = 600.0;
 const CANDY_SPEED: f32 = 250.0;
-const CANDY_SPAWN_TIMER_SECONDS: f32 = 1.0;
-const NUMBER_OF_INITIAL_CANDIES: usize = 10;
+const CANDY_SPAWN_TIMER_SECONDS: f32 = 0.33;
+const NUMBER_OF_INITIAL_CANDIES: usize = 3;
 
 #[derive(States, Default, Debug, Hash, Eq, PartialEq, Clone)]
 pub enum GameState {
@@ -37,9 +37,6 @@ pub struct Candy {
     pub direction: Vec2,
     pub timestamp_changed_direction: f32,
 }
-
-#[derive(Component)]
-pub struct Poop {}
 
 #[derive(Component)]
 pub struct Text {}
@@ -70,6 +67,17 @@ pub struct CandyImage(Handle<Image>);
 #[derive(Resource, Deref, DerefMut)]
 pub struct CandySpawnTimer(Timer);
 
+#[derive(Resource)]
+pub struct ShrinkData {
+    initial_scale_x: f32,
+    total_time: f32,
+}
+
+#[derive(Resource)]
+pub struct TitlePulseData {
+    start_time: f32,
+}
+
 struct Rect {
     min_x: f32,
     max_x: f32,
@@ -86,7 +94,20 @@ fn main() {
         .add_plugins(DefaultPlugins.set(LogPlugin {
             filter: "wgpu=warn,naga=warn".into(),
             level: bevy::log::Level::DEBUG,
-        }).set(ImagePlugin::default_nearest()))
+        }).set(ImagePlugin::default_nearest()).set(WindowPlugin {
+            primary_window: Some(Window {
+                title: "The Fat Caticorn".into(),
+                resolution: (800., 600.).into(),
+                present_mode: PresentMode::AutoVsync,
+                // Tells wasm to resize the window according to the available canvas
+                fit_canvas_to_parent: true,
+                // Tells wasm not to override default event handling, like F5, Ctrl+R etc.
+                prevent_default_event_handling: false,
+                window_theme: Some(WindowTheme::Dark),
+                ..default()
+            }),
+            ..default()
+        }))
         .add_plugins(LogDiagnosticsPlugin::default())
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
         .insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
@@ -208,6 +229,7 @@ pub fn title_setup(
     audio_sinks: Res<Assets<AudioSink>>,
     mut music: ResMut<Music>,
     entities: Query<Entity, (Without<Camera>, Without<Window>, Without<Player>)>,
+    time: Res<Time>,
 ) {
     info!("title_setup");
 
@@ -251,18 +273,31 @@ pub fn title_setup(
     let strong_handle = audio_sinks.get_handle(weak_handle);
 
     music.0 = Some(strong_handle);
+
+    commands.insert_resource(TitlePulseData {
+        start_time: time.elapsed_seconds(),
+    });
 }
 
 pub fn title_player_pulse(
     mut player_query: Query<&mut Transform, With<Player>>,
     time: Res<Time>,
+    pulse_data: Res<TitlePulseData>
 ) {
     //debug!("title_player_pulse");
 
-    let seconds = time.elapsed_seconds();
     if let Ok(mut transform) = player_query.get_single_mut() {
-        let size = ((2.0 * seconds).sin() + 3.0).abs() / 2.0;
-        trace!("size: {}", size);
+        let elapsed = time.elapsed_seconds() - pulse_data.start_time;
+        // 2.8 fast
+        // 2.75 slow
+        // 2.78 liiiitle fast
+        // 2.778 liiiiiiitle fast
+        // 2.777 liiiiiiitle fast
+        // 2.776 liiiiiiiiiiiitle fast
+        // 2.774 liiiiiiiiiiiiiiiitle fast
+        let music_speed_factor = 2.77;
+        let max_size = 1.5;
+        let size = 1.0 + (elapsed * music_speed_factor).sin().abs() * max_size;
         transform.scale.x = size;
         transform.scale.y = size;
     }
@@ -548,78 +583,73 @@ pub fn gameplay_player_candy_collision(
 }
 
 pub fn end_sequence(
-    mut player_query: Query<&mut Transform, (With<Player>, Without<Candy>, Without<Poop>)>,
+    mut player_query: Query<&mut Transform, (With<Player>, Without<Candy>)>,
     time: Res<Time>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
     debug!("end_sequence");
 
     if let Ok(mut transform) = player_query.get_single_mut() {
-        let mut direction_to_mid = Vec3::new(0.0 - transform.translation.x, 0.0 - transform.translation.y, 0.0);
-        if direction_to_mid.length() < 10.0 {
+        let direction_to_mid = Vec3::new(0.0 - transform.translation.x, 0.0 - transform.translation.y, 0.0);
+        if direction_to_mid.length() < 1.0 {
             next_state.set(GameState::Poop);
         } else {
-            direction_to_mid = direction_to_mid.normalize();
-            transform.translation += direction_to_mid * time.delta_seconds() * 400.0;
+            let mut change = direction_to_mid.normalize() * time.delta_seconds() * 400.0;
+            while change.length() > direction_to_mid.length() {
+                change *= 0.9;
+            }
+            transform.translation += change;
         }
     }
 }
 
 pub fn poop_setup(
+    mut player_query: Query<&Transform, (With<Player>, Without<Candy>)>,
     mut commands: Commands,
-    mut player_query: Query<&Transform, With<Player>>,
     audio: Res<Audio>,
     asset_server: Res<AssetServer>,
 ) {
     debug!("poop_setup");
+    audio.play(asset_server.load("audio/end_fart.ogg"));
     if let Ok(transform) = player_query.get_single_mut() {
-        audio.play(asset_server.load("audio/end_fart.ogg"));
-
-        commands.spawn((
-            SpriteBundle {
-                transform: *transform,
-                texture: asset_server.load("sprites/poop.png"),
-                ..default()
-            },
-            Poop {},
-        ));
+        commands.insert_resource(ShrinkData {
+            initial_scale_x: transform.scale.x,
+            total_time: 0.0,
+        });
     }
 }
 
 pub fn poop_sequence(
-    window_query: Query<&Window, With<PrimaryWindow>>,
-    mut player_query: Query<&mut Transform, (With<Player>, Without<Candy>, Without<Poop>)>,
-    mut poop_query: Query<&mut Transform, (With<Poop>, Without<Candy>, Without<Player>)>,
+    mut player_query: Query<&mut Transform, (With<Player>, Without<Candy>)>,
     time: Res<Time>,
     mut next_state: ResMut<NextState<GameState>>,
+    mut shrink_data: ResMut<ShrinkData>
 ) {
     debug!("poop_sequence");
 
-    let window = window_query.get_single().unwrap();
-
     if let Ok(mut transform) = player_query.get_single_mut() {
-        if transform.scale.x > 1.0 {
-            transform.scale.x -= 5.0 * time.delta_seconds();
-        }
-        if transform.scale.y > 1.0 {
-            transform.scale.y -= 5.0 * time.delta_seconds();
-        }
-    }
-    if let Ok(mut transform) = poop_query.get_single_mut() {
-        transform.translation.x += PLAYER_SPEED * time.delta_seconds();
 
-        let max_x = window.width() * 1.5;
+        let shrink = (shrink_data.initial_scale_x - 1.0) / 2.0;
 
-        if transform.translation.x > max_x {
+        transform.scale.x -= shrink * time.delta_seconds();
+        transform.scale.y -= shrink * time.delta_seconds();
+
+        if shrink_data.total_time > 2.0 {
             next_state.set(GameState::Title);
         }
+
+        shrink_data.total_time += time.delta_seconds();
     }
 }
 
 pub fn poop_teardown(
     mut commands: Commands,
+    player_query: Query<&Transform, (With<Player>, Without<Candy>)>,
     entities: Query<Entity, (Without<Camera>, Without<Window>, Without<Player>)>,
 ) {
+    if let Ok(transform) = player_query.get_single() {
+        warn!("x: {}, y: {}", transform.translation.x, transform.translation.y);
+    }
     info!("poop_teardown");
     for entity in &entities {
         commands.entity(entity).despawn();
