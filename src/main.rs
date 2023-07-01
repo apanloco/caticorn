@@ -1,14 +1,5 @@
-// TODO:
-// [X] fix candy continuous spawning
-// [X] fix cat-candy gravity
-// [X] fix candy bounce sound when pressed to wall
-// [X] tri-state: title, play, end
-// [X] music
-// [X] gulping sound
-// [X] win state (press space to retry)
-// [ ] start state (press space to start)
-// [ ] spawn candy sound
-// [ ] make cat fatter when eating?
+#![allow(clippy::type_complexity)]
+#![allow(clippy::too_many_arguments)]
 
 use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::log::LogPlugin;
@@ -27,7 +18,7 @@ struct Cli {
 const PLAYER_SPEED: f32 = 600.0;
 const CANDY_SPEED: f32 = 250.0;
 const CANDY_SPAWN_TIMER_SECONDS: f32 = 1.0;
-const NUMBER_OF_INITIAL_CANDIES: usize = 100;
+const NUMBER_OF_INITIAL_CANDIES: usize = 10;
 
 #[derive(States, Default, Debug, Hash, Eq, PartialEq, Clone)]
 pub enum GameState {
@@ -102,14 +93,11 @@ fn main() {
         .insert_resource(CandySpawnTimer(Timer::from_seconds(CANDY_SPAWN_TIMER_SECONDS, TimerMode::Repeating)))
         .insert_resource(Music(None))
         .add_state::<GameState>()
-        //.add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest())) // prevents blurry sprites
         .add_systems(Startup, setup)
         .add_systems(OnEnter(GameState::Title), title_setup)
         .add_systems(OnExit(GameState::Title), title_teardown)
         .add_systems(OnEnter(GameState::Playing), gameplay_setup)
         .add_systems(OnExit(GameState::Playing), gameplay_teardown)
-        .add_systems(OnEnter(GameState::End), end_setup)
-        .add_systems(OnExit(GameState::End), end_teardown)
         .add_systems(OnEnter(GameState::Poop), poop_setup)
         .add_systems(OnExit(GameState::Poop), poop_teardown)
         .add_systems(
@@ -168,6 +156,15 @@ fn calculate_confinement_rect(window: &Window, image: &Image, transform: &Transf
     }
 }
 
+fn stop_music(mut music: ResMut<Music>, audio_sinks: Res<Assets<AudioSink>>) {
+    if music.0.is_some() {
+        if let Some(sink) = audio_sinks.get(music.0.as_ref().unwrap()) {
+            sink.stop();
+        }
+        music.0 = None;
+    }
+}
+
 pub fn setup(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -207,7 +204,6 @@ pub fn title_setup(
     mut commands: Commands,
     mut player_query: Query<&mut Transform, With<Player>>,
     asset_server: Res<AssetServer>,
-    player_image: Res<PlayerImage>,
     audio: Res<Audio>,
     audio_sinks: Res<Assets<AudioSink>>,
     mut music: ResMut<Music>,
@@ -275,7 +271,7 @@ pub fn title_player_pulse(
 pub fn title_teardown(
     mut commands: Commands,
     entities: Query<Entity, With<Text>>,
-    mut music: ResMut<Music>,
+    music: ResMut<Music>,
     audio_sinks: Res<Assets<AudioSink>>,
 ) {
     info!("title_teardown");
@@ -284,12 +280,7 @@ pub fn title_teardown(
         commands.entity(entity).despawn();
     }
 
-    if music.0.is_some() {
-        if let Some(sink) = audio_sinks.get(music.0.as_ref().unwrap()) {
-            sink.stop();
-        }
-        music.0 = None;
-    }
+    stop_music(music, audio_sinks);
 }
 
 pub fn title_wait_for_keypress(
@@ -341,7 +332,7 @@ pub fn gameplay_setup(
 
 pub fn gameplay_teardown(
     mut commands: Commands,
-    mut music: ResMut<Music>,
+    music: ResMut<Music>,
     audio_sinks: Res<Assets<AudioSink>>,
     entities: Query<Entity, (Without<Camera>, Without<Window>, Without<Player>)>,
 ) {
@@ -351,12 +342,7 @@ pub fn gameplay_teardown(
         commands.entity(entity).despawn();
     }
 
-    if music.0.is_some() {
-        if let Some(sink) = audio_sinks.get(music.0.as_ref().unwrap()) {
-            sink.stop();
-        }
-        music.0 = None;
-    }
+    stop_music(music, audio_sinks);
 }
 
 pub fn gameplay_spawn_candy_timer(
@@ -393,15 +379,10 @@ fn spawn_candy(commands: &mut Commands, window: &Window, candy_image: &CandyImag
 }
 
 pub fn gameplay_await_zero_candy(
-    mut q: Query<(&Transform, &Candy)>,
-    window_query: Query<&Window, With<PrimaryWindow>>,
-    audio: Res<Audio>,
-    sound: Res<CandyChangeDirectionSound>,
-    images: Res<Assets<Image>>,
-    time: Res<Time>,
+    query: Query<(&Transform, &Candy)>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
-    let candy_left = q.iter().len();
+    let candy_left = query.iter().len();
     if candy_left < 1 {
         next_state.set(GameState::End);
     }
@@ -431,8 +412,8 @@ pub fn gameplay_player_movement(
         if keyboard_input.pressed(KeyCode::P) {
             transform.scale.x *= 1.1;
             transform.scale.y *= 1.1;
-            transform.scale.x.clamp(1.0, 6.0);
-            transform.scale.y.clamp(1.0, 6.0);
+            transform.scale.x = transform.scale.x.clamp(1.0, 6.0);
+            transform.scale.y = transform.scale.y.clamp(1.0, 6.0);
         }
 
         transform.translation += direction * PLAYER_SPEED * time.delta_seconds();
@@ -517,12 +498,12 @@ pub fn gameplay_update_candy_direction(
 }
 
 pub fn gameplay_confine_entity_movement(
-    mut query: Query<(&mut Transform, &Handle<Image>, Option<&Player>)>,
+    mut query: Query<(&mut Transform, &Handle<Image>)>,
     window_query: Query<&Window, With<PrimaryWindow>>,
     images: Res<Assets<Image>>,
 ) {
     let window = window_query.get_single().unwrap();
-    for (mut transform, image_handle, player) in query.iter_mut() {
+    for (mut transform, image_handle) in query.iter_mut() {
         let Some(image) = images.get(image_handle) else {
             continue;
         };
@@ -536,13 +517,13 @@ pub fn gameplay_confine_entity_movement(
 
 pub fn gameplay_player_candy_collision(
     mut commands: Commands,
-    mut player_query: Query<(Entity, &Handle<Image>, &mut Transform), (With<Player>, Without<Candy>)>,
+    mut player_query: Query<(&Handle<Image>, &mut Transform), (With<Player>, Without<Candy>)>,
     candy_query: Query<(Entity, &Handle<Image>, &Transform), (With<Candy>, Without<Player>)>,
     audio: Res<Audio>,
     sound: Res<PlayerCandyCollisionSound>,
     images: Res<Assets<Image>>,
 ) {
-    if let Ok((player_entity, player_image_handle, mut player_transform)) = player_query.get_single_mut() {
+    if let Ok((player_image_handle, mut player_transform)) = player_query.get_single_mut() {
         let Some(player_image) = images.get(player_image_handle) else {
             error!("failed to get player image");
             return;
@@ -566,29 +547,12 @@ pub fn gameplay_player_candy_collision(
     }
 }
 
-
-pub fn end_setup(
-    mut commands: Commands,
-    mut player_query: Query<&mut Transform, With<Player>>,
-    window_query: Query<&Window, With<PrimaryWindow>>,
-    audio: Res<Audio>,
-    asset_server: Res<AssetServer>,
-) {
-    info!("end_setup");
-    if let Ok(mut transform) = player_query.get_single_mut() {
-        info!("hej");
-    }
-}
-
 pub fn end_sequence(
-    window_query: Query<&Window, With<PrimaryWindow>>,
     mut player_query: Query<&mut Transform, (With<Player>, Without<Candy>, Without<Poop>)>,
     time: Res<Time>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
     debug!("end_sequence");
-
-    let window = window_query.get_single().unwrap();
 
     if let Ok(mut transform) = player_query.get_single_mut() {
         let mut direction_to_mid = Vec3::new(0.0 - transform.translation.x, 0.0 - transform.translation.y, 0.0);
@@ -601,29 +565,19 @@ pub fn end_sequence(
     }
 }
 
-pub fn end_teardown(
-    mut commands: Commands,
-    window_query: Query<&Window, With<PrimaryWindow>>,
-    asset_server: Res<AssetServer>,
-    entities: Query<Entity, (Without<Camera>, Without<Window>, Without<Player>)>,
-) {
-    debug!("end_teardown");
-}
-
 pub fn poop_setup(
     mut commands: Commands,
-    mut player_query: Query<&mut Transform, With<Player>>,
-    window_query: Query<&Window, With<PrimaryWindow>>,
+    mut player_query: Query<&Transform, With<Player>>,
     audio: Res<Audio>,
     asset_server: Res<AssetServer>,
 ) {
     debug!("poop_setup");
-    if let Ok(mut transform) = player_query.get_single_mut() {
+    if let Ok(transform) = player_query.get_single_mut() {
         audio.play(asset_server.load("audio/end_fart.ogg"));
 
         commands.spawn((
             SpriteBundle {
-                transform: transform.clone(),
+                transform: *transform,
                 texture: asset_server.load("sprites/poop.png"),
                 ..default()
             },
@@ -633,7 +587,6 @@ pub fn poop_setup(
 }
 
 pub fn poop_sequence(
-    mut commands: Commands,
     window_query: Query<&Window, With<PrimaryWindow>>,
     mut player_query: Query<&mut Transform, (With<Player>, Without<Candy>, Without<Poop>)>,
     mut poop_query: Query<&mut Transform, (With<Poop>, Without<Candy>, Without<Player>)>,
@@ -665,8 +618,6 @@ pub fn poop_sequence(
 
 pub fn poop_teardown(
     mut commands: Commands,
-    window_query: Query<&Window, With<PrimaryWindow>>,
-    asset_server: Res<AssetServer>,
     entities: Query<Entity, (Without<Camera>, Without<Window>, Without<Player>)>,
 ) {
     info!("poop_teardown");
