@@ -27,8 +27,7 @@ struct Cli {
 const PLAYER_SPEED: f32 = 600.0;
 const CANDY_SPEED: f32 = 250.0;
 const CANDY_SPAWN_TIMER_SECONDS: f32 = 1.0;
-
-const NUMBER_OF_INITIAL_CANDIES: usize = 10;
+const NUMBER_OF_INITIAL_CANDIES: usize = 100;
 
 #[derive(States, Default, Debug, Hash, Eq, PartialEq, Clone)]
 pub enum GameState {
@@ -36,6 +35,7 @@ pub enum GameState {
     Title,
     Playing,
     End,
+    Poop,
 }
 
 #[derive(Component)]
@@ -110,6 +110,8 @@ fn main() {
         .add_systems(OnExit(GameState::Playing), gameplay_teardown)
         .add_systems(OnEnter(GameState::End), end_setup)
         .add_systems(OnExit(GameState::End), end_teardown)
+        .add_systems(OnEnter(GameState::Poop), poop_setup)
+        .add_systems(OnExit(GameState::Poop), poop_teardown)
         .add_systems(
             Update,
             (
@@ -136,6 +138,12 @@ fn main() {
                 end_sequence,
             ).run_if(in_state(GameState::End)),
         )
+        .add_systems(
+            Update,
+            (
+                poop_sequence,
+            ).run_if(in_state(GameState::Poop)),
+        )
         .run();
 }
 
@@ -147,6 +155,10 @@ fn calculate_confinement_rect(window: &Window, image: &Image, transform: &Transf
     let max_x = (window.width() / 2.0) - half_size_x;
     let min_y = -(window.height() / 2.0) + half_size_y;
     let max_y = (window.height() / 2.0) - half_size_y;
+
+    if min_x > max_x || min_y > max_y {
+        error!("poop");
+    }
 
     Rect {
         min_x,
@@ -416,11 +428,14 @@ pub fn gameplay_player_movement(
             direction += Vec3::new(0.0, -1.0, 0.0);
         }
 
-        // if direction.length() > 0.0 {
-        //     direction = direction.normalize();
-        // }
+        if keyboard_input.pressed(KeyCode::P) {
+            transform.scale.x *= 1.1;
+            transform.scale.y *= 1.1;
+            transform.scale.x.clamp(1.0, 6.0);
+            transform.scale.y.clamp(1.0, 6.0);
+        }
 
-        transform.translation += direction * PLAYER_SPEED * time.delta_seconds()
+        transform.translation += direction * PLAYER_SPEED * time.delta_seconds();
     }
 }
 
@@ -561,6 +576,49 @@ pub fn end_setup(
 ) {
     info!("end_setup");
     if let Ok(mut transform) = player_query.get_single_mut() {
+        info!("hej");
+    }
+}
+
+pub fn end_sequence(
+    window_query: Query<&Window, With<PrimaryWindow>>,
+    mut player_query: Query<&mut Transform, (With<Player>, Without<Candy>, Without<Poop>)>,
+    time: Res<Time>,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    debug!("end_sequence");
+
+    let window = window_query.get_single().unwrap();
+
+    if let Ok(mut transform) = player_query.get_single_mut() {
+        let mut direction_to_mid = Vec3::new(0.0 - transform.translation.x, 0.0 - transform.translation.y, 0.0);
+        if direction_to_mid.length() < 10.0 {
+            next_state.set(GameState::Poop);
+        } else {
+            direction_to_mid = direction_to_mid.normalize();
+            transform.translation += direction_to_mid * time.delta_seconds() * 400.0;
+        }
+    }
+}
+
+pub fn end_teardown(
+    mut commands: Commands,
+    window_query: Query<&Window, With<PrimaryWindow>>,
+    asset_server: Res<AssetServer>,
+    entities: Query<Entity, (Without<Camera>, Without<Window>, Without<Player>)>,
+) {
+    debug!("end_teardown");
+}
+
+pub fn poop_setup(
+    mut commands: Commands,
+    mut player_query: Query<&mut Transform, With<Player>>,
+    window_query: Query<&Window, With<PrimaryWindow>>,
+    audio: Res<Audio>,
+    asset_server: Res<AssetServer>,
+) {
+    debug!("poop_setup");
+    if let Ok(mut transform) = player_query.get_single_mut() {
         audio.play(asset_server.load("audio/end_fart.ogg"));
 
         commands.spawn((
@@ -574,7 +632,7 @@ pub fn end_setup(
     }
 }
 
-pub fn end_sequence(
+pub fn poop_sequence(
     mut commands: Commands,
     window_query: Query<&Window, With<PrimaryWindow>>,
     mut player_query: Query<&mut Transform, (With<Player>, Without<Candy>, Without<Poop>)>,
@@ -582,12 +640,17 @@ pub fn end_sequence(
     time: Res<Time>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
-    debug!("end_sequence");
+    debug!("poop_sequence");
 
     let window = window_query.get_single().unwrap();
 
     if let Ok(mut transform) = player_query.get_single_mut() {
-        transform.translation.x -= PLAYER_SPEED * time.delta_seconds();
+        if transform.scale.x > 1.0 {
+            transform.scale.x -= 5.0 * time.delta_seconds();
+        }
+        if transform.scale.y > 1.0 {
+            transform.scale.y -= 5.0 * time.delta_seconds();
+        }
     }
     if let Ok(mut transform) = poop_query.get_single_mut() {
         transform.translation.x += PLAYER_SPEED * time.delta_seconds();
@@ -600,14 +663,15 @@ pub fn end_sequence(
     }
 }
 
-pub fn end_teardown(
+pub fn poop_teardown(
     mut commands: Commands,
     window_query: Query<&Window, With<PrimaryWindow>>,
     asset_server: Res<AssetServer>,
     entities: Query<Entity, (Without<Camera>, Without<Window>, Without<Player>)>,
 ) {
-    info!("end_teardown");
+    info!("poop_teardown");
     for entity in &entities {
         commands.entity(entity).despawn();
     }
 }
+
