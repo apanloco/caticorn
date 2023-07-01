@@ -2,10 +2,10 @@
 // [X] fix candy continuous spawning
 // [X] fix cat-candy gravity
 // [X] fix candy bounce sound when pressed to wall
-// [ ] tri-state: title, play, end
-// [ ] music
-// [ ] gulping sound
-// [ ] win state (press space to retry)
+// [X] tri-state: title, play, end
+// [X] music
+// [X] gulping sound
+// [X] win state (press space to retry)
 // [ ] start state (press space to start)
 // [ ] spawn candy sound
 // [ ] make cat fatter when eating?
@@ -46,6 +46,12 @@ pub struct Candy {
     pub direction: Vec2,
     pub timestamp_changed_direction: f32,
 }
+
+#[derive(Component)]
+pub struct Poop {}
+
+#[derive(Component)]
+pub struct Text {}
 
 #[derive(Resource)]
 pub struct CandyChangeDirectionSound {
@@ -103,6 +109,7 @@ fn main() {
         .add_systems(OnEnter(GameState::Playing), gameplay_setup)
         .add_systems(OnExit(GameState::Playing), gameplay_teardown)
         .add_systems(OnEnter(GameState::End), end_setup)
+        .add_systems(OnExit(GameState::End), end_teardown)
         .add_systems(
             Update,
             (
@@ -122,6 +129,12 @@ fn main() {
                 gameplay_player_candy_collision.after(gameplay_player_movement).after(gameplay_candy_movement),
                 gameplay_confine_entity_movement.after(gameplay_player_candy_collision),
             ).run_if(in_state(GameState::Playing)),
+        )
+        .add_systems(
+            Update,
+            (
+                end_sequence,
+            ).run_if(in_state(GameState::End)),
         )
         .run();
 }
@@ -165,23 +178,43 @@ pub fn setup(
         asset_server.load("sprites/donut.png"),
     );
 
+    commands.spawn((
+        SpriteBundle {
+            transform: Transform::from_xyz(0.0, 0.0, 0.0),
+            texture: player_image.clone(),
+            ..default()
+        },
+        Player {},
+    ));
+
     commands.insert_resource(player_image);
     commands.insert_resource(candy_image);
 }
 
 pub fn title_setup(
     mut commands: Commands,
+    mut player_query: Query<&mut Transform, With<Player>>,
     asset_server: Res<AssetServer>,
     player_image: Res<PlayerImage>,
     audio: Res<Audio>,
     audio_sinks: Res<Assets<AudioSink>>,
     mut music: ResMut<Music>,
+    entities: Query<Entity, (Without<Camera>, Without<Window>, Without<Player>)>,
 ) {
     info!("title_setup");
 
+    for entity in &entities {
+        commands.entity(entity).despawn();
+    }
+
+    if let Ok(mut transform) = player_query.get_single_mut() {
+        transform.translation = Vec3::default();
+        transform.scale = Vec3::new(1.0, 1.0, 1.0);
+    }
+
     commands.spawn((
         TextBundle::from_section(
-            "press any key to start",
+            "press SPACE to start",
             TextStyle {
                 font: asset_server.load("fonts/MesloLGS NF Regular.ttf"),
                 font_size: 50.0,
@@ -195,15 +228,7 @@ pub fn title_setup(
                 right: Val::Px(15.0),
                 ..default()
             }),
-    ));
-
-    commands.spawn((
-        SpriteBundle {
-            transform: Transform::from_xyz(0.0, 0.0, 0.0),
-            texture: player_image.clone(),
-            ..default()
-        },
-        Player {},
+        Text {},
     ));
 
     let weak_handle = audio.play_with_settings(
@@ -224,7 +249,8 @@ pub fn title_player_pulse(
     mut player_query: Query<&mut Transform, With<Player>>,
     time: Res<Time>,
 ) {
-    debug!("title_player_pulse");
+    //debug!("title_player_pulse");
+
     let seconds = time.elapsed_seconds();
     if let Ok(mut transform) = player_query.get_single_mut() {
         let size = ((2.0 * seconds).sin() + 3.0).abs() / 2.0;
@@ -236,7 +262,7 @@ pub fn title_player_pulse(
 
 pub fn title_teardown(
     mut commands: Commands,
-    entities: Query<Entity, (Without<Camera>, Without<Window>)>,
+    entities: Query<Entity, With<Text>>,
     mut music: ResMut<Music>,
     audio_sinks: Res<Assets<AudioSink>>,
 ) {
@@ -252,7 +278,6 @@ pub fn title_teardown(
         }
         music.0 = None;
     }
-
 }
 
 pub fn title_wait_for_keypress(
@@ -267,9 +292,9 @@ pub fn title_wait_for_keypress(
 
 pub fn gameplay_setup(
     mut commands: Commands,
+    mut player_query: Query<&mut Transform, With<Player>>,
     window_query: Query<&Window, With<PrimaryWindow>>,
     candy_image: Res<CandyImage>,
-    player_image: Res<PlayerImage>,
     audio: Res<Audio>,
     audio_sinks: Res<Assets<AudioSink>>,
     asset_server: Res<AssetServer>,
@@ -277,16 +302,12 @@ pub fn gameplay_setup(
 ) {
     info!("gameplay_setup");
 
-    let window = window_query.get_single().unwrap();
+    if let Ok(mut transform) = player_query.get_single_mut() {
+        transform.scale.x = 1.0;
+        transform.scale.y = 1.0;
+    }
 
-    commands.spawn((
-        SpriteBundle {
-            transform: Transform::from_xyz(0.0, 0.0, 0.0),
-            texture: player_image.clone(),
-            ..default()
-        },
-        Player {},
-    ));
+    let window = window_query.get_single().unwrap();
 
     for _ in 0..NUMBER_OF_INITIAL_CANDIES {
         spawn_candy(&mut commands, window, &candy_image);
@@ -308,9 +329,9 @@ pub fn gameplay_setup(
 
 pub fn gameplay_teardown(
     mut commands: Commands,
-    entities: Query<Entity, (Without<Camera>, Without<Window>)>,
     mut music: ResMut<Music>,
     audio_sinks: Res<Assets<AudioSink>>,
+    entities: Query<Entity, (Without<Camera>, Without<Window>, Without<Player>)>,
 ) {
     info!("gameplay_teardown");
 
@@ -324,15 +345,6 @@ pub fn gameplay_teardown(
         }
         music.0 = None;
     }
-
-}
-
-pub fn end_setup(
-    mut commands: Commands,
-    window_query: Query<&Window, With<PrimaryWindow>>,
-    asset_server: Res<AssetServer>,
-) {
-    info!("end_setup");
 }
 
 pub fn gameplay_spawn_candy_timer(
@@ -388,8 +400,6 @@ pub fn gameplay_player_movement(
     mut player_query: Query<&mut Transform, With<Player>>,
     time: Res<Time>,
 ) {
-    //println!("player_movement");
-    //println!("1 {:?}", std::thread::current().id());
     if let Ok(mut transform) = player_query.get_single_mut() {
         let mut direction = Vec3::ZERO;
 
@@ -401,11 +411,11 @@ pub fn gameplay_player_movement(
         }
         if keyboard_input.pressed(KeyCode::Up) || keyboard_input.pressed(KeyCode::W) {
             direction += Vec3::new(0.0, 1.0, 0.0);
-            println!("walk up!");
         }
         if keyboard_input.pressed(KeyCode::Down) || keyboard_input.pressed(KeyCode::S) {
             direction += Vec3::new(0.0, -1.0, 0.0);
         }
+
         // if direction.length() > 0.0 {
         //     direction = direction.normalize();
         // }
@@ -421,6 +431,9 @@ pub fn gameplay_exit_to_title(
     if keyboard_input.pressed(KeyCode::Escape) {
         next_state.set(GameState::Title);
     }
+    if keyboard_input.pressed(KeyCode::Return) {
+        next_state.set(GameState::End);
+    }
 }
 
 pub fn gameplay_candy_movement(
@@ -428,17 +441,16 @@ pub fn gameplay_candy_movement(
     player_query: Query<&Transform, (With<Player>, Without<Candy>)>,
     time: Res<Time>,
 ) {
-    // println!("2 {:?}", std::thread::current().id());
     let Ok(player_transform) = player_query.get_single() else {
+        error!("player query failed");
         return;
     };
     for (mut transform, candy) in candy_query.iter_mut() {
         let direction = Vec3::new(candy.direction.x, candy.direction.y, 0.0);
-        //println!("candy direction: {:?}", &direction);
         transform.translation += direction * CANDY_SPEED * time.delta_seconds();
 
         let mut distance = transform.translation.distance(player_transform.translation);
-        if distance < 300.0 {
+        if distance < 200.0 {
             if distance < 25.0 {
                 distance = 25.0;
             }
@@ -458,8 +470,6 @@ pub fn gameplay_update_candy_direction(
     images: Res<Assets<Image>>,
     time: Res<Time>,
 ) {
-//    println!("3 {:?}", std::thread::current().id());
-
     let window = window_query.get_single().unwrap();
 
     for (transform, image_handle, mut candy) in q.iter_mut() {
@@ -496,7 +506,6 @@ pub fn gameplay_confine_entity_movement(
     window_query: Query<&Window, With<PrimaryWindow>>,
     images: Res<Assets<Image>>,
 ) {
-//    println!("4 {:?}", std::thread::current().id());
     let window = window_query.get_single().unwrap();
     for (mut transform, image_handle, player) in query.iter_mut() {
         let Some(image) = images.get(image_handle) else {
@@ -518,7 +527,6 @@ pub fn gameplay_player_candy_collision(
     sound: Res<PlayerCandyCollisionSound>,
     images: Res<Assets<Image>>,
 ) {
-    // println!("5 {:?}", std::thread::current().id());
     if let Ok((player_entity, player_image_handle, mut player_transform)) = player_query.get_single_mut() {
         let Some(player_image) = images.get(player_image_handle) else {
             error!("failed to get player image");
@@ -536,9 +544,70 @@ pub fn gameplay_player_candy_collision(
             if distance < -20.0 {
                 audio.play(sound.clone());
                 commands.entity(candy_entity).despawn();
-                player_transform.scale.x += 0.05;
-                player_transform.scale.y += 0.05;
+                player_transform.scale.x += 0.03;
+                player_transform.scale.y += 0.03;
             }
         }
+    }
+}
+
+
+pub fn end_setup(
+    mut commands: Commands,
+    mut player_query: Query<&mut Transform, With<Player>>,
+    window_query: Query<&Window, With<PrimaryWindow>>,
+    audio: Res<Audio>,
+    asset_server: Res<AssetServer>,
+) {
+    info!("end_setup");
+    if let Ok(mut transform) = player_query.get_single_mut() {
+        audio.play(asset_server.load("audio/end_fart.ogg"));
+
+        commands.spawn((
+            SpriteBundle {
+                transform: transform.clone(),
+                texture: asset_server.load("sprites/poop.png"),
+                ..default()
+            },
+            Poop {},
+        ));
+    }
+}
+
+pub fn end_sequence(
+    mut commands: Commands,
+    window_query: Query<&Window, With<PrimaryWindow>>,
+    mut player_query: Query<&mut Transform, (With<Player>, Without<Candy>, Without<Poop>)>,
+    mut poop_query: Query<&mut Transform, (With<Poop>, Without<Candy>, Without<Player>)>,
+    time: Res<Time>,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    debug!("end_sequence");
+
+    let window = window_query.get_single().unwrap();
+
+    if let Ok(mut transform) = player_query.get_single_mut() {
+        transform.translation.x -= PLAYER_SPEED * time.delta_seconds();
+    }
+    if let Ok(mut transform) = poop_query.get_single_mut() {
+        transform.translation.x += PLAYER_SPEED * time.delta_seconds();
+
+        let max_x = window.width() * 1.5;
+
+        if transform.translation.x > max_x {
+            next_state.set(GameState::Title);
+        }
+    }
+}
+
+pub fn end_teardown(
+    mut commands: Commands,
+    window_query: Query<&Window, With<PrimaryWindow>>,
+    asset_server: Res<AssetServer>,
+    entities: Query<Entity, (Without<Camera>, Without<Window>, Without<Player>)>,
+) {
+    info!("end_teardown");
+    for entity in &entities {
+        commands.entity(entity).despawn();
     }
 }
