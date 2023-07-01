@@ -23,6 +23,7 @@ const NUMBER_OF_INITIAL_CANDIES: usize = 3;
 #[derive(States, Default, Debug, Hash, Eq, PartialEq, Clone)]
 pub enum GameState {
     #[default]
+    Init,
     Title,
     Playing,
     End,
@@ -100,10 +101,11 @@ fn main() {
                 resolution: (800., 600.).into(),
                 present_mode: PresentMode::AutoVsync,
                 // Tells wasm to resize the window according to the available canvas
-                fit_canvas_to_parent: true,
+                fit_canvas_to_parent: false,
                 // Tells wasm not to override default event handling, like F5, Ctrl+R etc.
                 prevent_default_event_handling: false,
                 window_theme: Some(WindowTheme::Dark),
+
                 ..default()
             }),
             ..default()
@@ -115,12 +117,20 @@ fn main() {
         .insert_resource(Music(None))
         .add_state::<GameState>()
         .add_systems(Startup, setup)
+        .add_systems(OnEnter(GameState::Init), init_setup)
+        .add_systems(OnExit(GameState::Init), init_teardown)
         .add_systems(OnEnter(GameState::Title), title_setup)
         .add_systems(OnExit(GameState::Title), title_teardown)
         .add_systems(OnEnter(GameState::Playing), gameplay_setup)
         .add_systems(OnExit(GameState::Playing), gameplay_teardown)
         .add_systems(OnEnter(GameState::Poop), poop_setup)
         .add_systems(OnExit(GameState::Poop), poop_teardown)
+        .add_systems(
+            Update,
+            (
+                init_wait_for_input,
+            ).run_if(in_state(GameState::Init)),
+        )
         .add_systems(
             Update,
             (
@@ -221,6 +231,45 @@ pub fn setup(
     commands.insert_resource(candy_image);
 }
 
+pub fn init_setup(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+) {
+    info!("init_setup");
+
+    commands.spawn((
+        TextBundle::from_section(
+            "mouse click to activate",
+            TextStyle {
+                font: asset_server.load("fonts/MesloLGS NF Regular.ttf"),
+                font_size: 50.0,
+                color: Color::WHITE,
+            },
+        )
+            .with_text_alignment(TextAlignment::Left)
+            .with_style(Style {
+                position_type: PositionType::Absolute,
+                bottom: Val::Px(5.0),
+                right: Val::Px(15.0),
+                ..default()
+            }),
+        Text {},
+    ));
+}
+
+pub fn init_teardown() {
+    info!("init_teardown");
+}
+
+pub fn init_wait_for_input(
+    buttons: Res<Input<MouseButton>>,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    if buttons.just_pressed(MouseButton::Left) {
+        next_state.set(GameState::Title)
+    }
+}
+
 pub fn title_setup(
     mut commands: Commands,
     mut player_query: Query<&mut Transform, With<Player>>,
@@ -244,10 +293,10 @@ pub fn title_setup(
 
     commands.spawn((
         TextBundle::from_section(
-            "press SPACE to start",
+            "press space to start",
             TextStyle {
                 font: asset_server.load("fonts/MesloLGS NF Regular.ttf"),
-                font_size: 50.0,
+                font_size: 30.0,
                 color: Color::WHITE,
             },
         )
@@ -295,7 +344,8 @@ pub fn title_player_pulse(
         // 2.777 liiiiiiitle fast
         // 2.776 liiiiiiiiiiiitle fast
         // 2.774 liiiiiiiiiiiiiiiitle fast
-        let music_speed_factor = 2.77;
+        // 2.77 liiiiiiiite långsam
+        let music_speed_factor = 2.772;
         let max_size = 1.5;
         let size = 1.0 + (elapsed * music_speed_factor).sin().abs() * max_size;
         transform.scale.x = size;
@@ -323,7 +373,6 @@ pub fn title_wait_for_keypress(
     mut next_state: ResMut<NextState<GameState>>,
 ) {
     if keyboard_input.just_pressed(KeyCode::Space) {
-        info!("state => Playing");
         next_state.set(GameState::Playing)
     }
 }
@@ -609,7 +658,7 @@ pub fn poop_setup(
     audio: Res<Audio>,
     asset_server: Res<AssetServer>,
 ) {
-    debug!("poop_setup");
+    info!("poop_setup");
     audio.play(asset_server.load("audio/end_fart.ogg"));
     if let Ok(transform) = player_query.get_single_mut() {
         commands.insert_resource(ShrinkData {
@@ -626,7 +675,6 @@ pub fn poop_sequence(
     mut shrink_data: ResMut<ShrinkData>
 ) {
     debug!("poop_sequence");
-
     if let Ok(mut transform) = player_query.get_single_mut() {
 
         let shrink = (shrink_data.initial_scale_x - 1.0) / 2.0;
@@ -647,10 +695,10 @@ pub fn poop_teardown(
     player_query: Query<&Transform, (With<Player>, Without<Candy>)>,
     entities: Query<Entity, (Without<Camera>, Without<Window>, Without<Player>)>,
 ) {
+    info!("poop_teardown");
     if let Ok(transform) = player_query.get_single() {
         warn!("x: {}, y: {}", transform.translation.x, transform.translation.y);
     }
-    info!("poop_teardown");
     for entity in &entities {
         commands.entity(entity).despawn();
     }

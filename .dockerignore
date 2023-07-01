@@ -1,0 +1,11 @@
+# Ignore everything
+*
+
+# Allow files and directories
+!/src
+!/assets
+!/Cargo.toml
+!/Cargo.lock
+!/nginx
+!/wasm
+

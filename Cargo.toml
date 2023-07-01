@@ -3,9 +3,7 @@ name = "caticorn"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-bevy = { path = "../../code/bevy" }
+bevy = { git = "https://github.com/bevyengine/bevy.git", rev = "fd32c6f0ec2b7b6c1936d6929d6e6303c9b8524c" }
 rand = "0.8.5"
 clap = {version="4.3", features=["derive"]}
