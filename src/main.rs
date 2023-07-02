@@ -7,6 +7,10 @@ use bevy::prelude::*;
 use bevy::window::{PresentMode, PrimaryWindow, WindowTheme};
 use clap::Parser;
 
+const BUILD_VERSION: Option<&str> = option_env!("CARGO_PKG_VERSION");
+const BUILD_COMMIT: Option<&str> = option_env!("VERGEN_GIT_DESCRIBE");
+const BUILD_DATE: Option<&str> = option_env!("VERGEN_BUILD_TIMESTAMP");
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
@@ -41,6 +45,11 @@ pub struct Candy {
 
 #[derive(Component)]
 pub struct Text {}
+
+#[derive(Resource)]
+pub struct PreloadedResources {
+    _resources: Vec<Handle<AudioSource>>,
+}
 
 #[derive(Resource)]
 pub struct CandyChangeDirectionSound {
@@ -175,10 +184,6 @@ fn calculate_confinement_rect(window: &Window, image: &Image, transform: &Transf
     let min_y = -(window.height() / 2.0) + half_size_y;
     let max_y = (window.height() / 2.0) - half_size_y;
 
-    if min_x > max_x || min_y > max_y {
-        error!("poop");
-    }
-
     Rect {
         min_x,
         max_x,
@@ -229,6 +234,15 @@ pub fn setup(
 
     commands.insert_resource(player_image);
     commands.insert_resource(candy_image);
+
+    commands.insert_resource(PreloadedResources {
+        _resources: vec![
+            asset_server.load("fonts/MesloLGS NF Regular.ttf"),
+            asset_server.load("music/music_gameplay.ogg"),
+            asset_server.load("music/music_title.ogg"),
+            asset_server.load("audio/end_fart.ogg"),
+        ]
+    });
 }
 
 pub fn init_setup(
@@ -239,7 +253,11 @@ pub fn init_setup(
 
     commands.spawn((
         TextBundle::from_section(
-            "mouse click to activate",
+            format!("mouse click to activate\n({} {} {})",
+                    BUILD_VERSION.as_ref().unwrap_or(&"?"),
+                    BUILD_COMMIT.as_ref().unwrap_or(&"?"),
+                    BUILD_DATE.as_ref().unwrap_or(&"?"),
+            ),
             TextStyle {
                 font: asset_server.load("fonts/MesloLGS NF Regular.ttf"),
                 font_size: 30.0,
@@ -331,7 +349,7 @@ pub fn title_setup(
 pub fn title_player_pulse(
     mut player_query: Query<&mut Transform, With<Player>>,
     time: Res<Time>,
-    pulse_data: Res<TitlePulseData>
+    pulse_data: Res<TitlePulseData>,
 ) {
     //debug!("title_player_pulse");
 
@@ -496,8 +514,6 @@ pub fn gameplay_player_movement(
         if keyboard_input.pressed(KeyCode::P) {
             transform.scale.x *= 1.1;
             transform.scale.y *= 1.1;
-            transform.scale.x = transform.scale.x.clamp(1.0, 6.0);
-            transform.scale.y = transform.scale.y.clamp(1.0, 6.0);
         }
 
         transform.translation += direction * PLAYER_SPEED * time.delta_seconds();
@@ -596,6 +612,8 @@ pub fn gameplay_confine_entity_movement(
 
         transform.translation.x = transform.translation.x.clamp(rect.min_x, rect.max_x);
         transform.translation.y = transform.translation.y.clamp(rect.min_y, rect.max_y);
+        transform.scale.x = transform.scale.x.clamp(1.0, 6.0);
+        transform.scale.y = transform.scale.y.clamp(1.0, 6.0);
     }
 }
 
@@ -621,7 +639,7 @@ pub fn gameplay_player_candy_collision(
             let half_size_candy = (candy_image.size().x + candy_image.size().x) / 4.0 * candy_transform.scale.x;
             distance -= half_size_player;
             distance -= half_size_candy;
-            if distance < -20.0 {
+            if distance < -25.0 {
                 audio.play(sound.clone());
                 commands.entity(candy_entity).despawn();
                 player_transform.scale.x += 0.03;
@@ -672,11 +690,10 @@ pub fn poop_sequence(
     mut player_query: Query<&mut Transform, (With<Player>, Without<Candy>)>,
     time: Res<Time>,
     mut next_state: ResMut<NextState<GameState>>,
-    mut shrink_data: ResMut<ShrinkData>
+    mut shrink_data: ResMut<ShrinkData>,
 ) {
     debug!("poop_sequence");
     if let Ok(mut transform) = player_query.get_single_mut() {
-
         let shrink = (shrink_data.initial_scale_x - 1.0) / 2.0;
 
         transform.scale.x -= shrink * time.delta_seconds();
