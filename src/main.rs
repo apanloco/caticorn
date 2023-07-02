@@ -23,6 +23,7 @@ const PLAYER_SPEED: f32 = 600.0;
 const CANDY_SPEED: f32 = 250.0;
 const CANDY_SPAWN_TIMER_SECONDS: f32 = 0.66;
 const NUMBER_OF_INITIAL_CANDIES: usize = 3;
+const MAX_CANDY: usize = 100;
 
 #[derive(States, Default, Debug, Hash, Eq, PartialEq, Clone)]
 pub enum GameState {
@@ -440,12 +441,17 @@ pub fn gameplay_teardown(
 
 pub fn gameplay_spawn_candy_timer(
     mut commands: Commands,
+    query: Query<(&Transform, &Candy)>,
     time: Res<Time>,
     mut timer: ResMut<CandySpawnTimer>,
     window_query: Query<&Window, With<PrimaryWindow>>,
     candy_image: Res<CandyImage>,
     keyboard_input: Res<Input<KeyCode>>,
 ) {
+    let candy_left = query.iter().len();
+    if candy_left > MAX_CANDY {
+        return;
+    }
     let window = window_query.get_single().unwrap();
     timer.tick(time.delta());
     if timer.just_finished() {
@@ -699,7 +705,6 @@ pub fn poop_sequence(
     mut next_state: ResMut<NextState<GameState>>,
     mut shrink_data: ResMut<ShrinkData>,
 ) {
-    debug!("poop_sequence");
     if let Ok(mut transform) = player_query.get_single_mut() {
         let shrink = (shrink_data.initial_scale_x - 1.0) / 2.0;
 
