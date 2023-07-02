@@ -2,6 +2,7 @@
 name = "caticorn"
 version = "0.1.1"
 edition = "2021"
+build = "build.rs"
 
 [dependencies]
 bevy = { git = "https://github.com/bevyengine/bevy.git", rev = "fd32c6f0ec2b7b6c1936d6929d6e6303c9b8524c" }
@@ -9,4 +10,4 @@ rand = "0.8.5"
 clap = {version="4.3", features=["derive"]}
 
 [build-dependencies]
-vergen = { version = "8.0.0", features = ["build", "cargo", "git", "gitcl", "rustc", "si"] }
+built = { version = "0.6", features = ["git2", "chrono"] }

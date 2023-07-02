@@ -1,7 +1,3 @@
-use std::error::Error;
-use vergen::EmitBuilder;
-
-fn main() -> Result<(), Box<dyn Error>> {
-    EmitBuilder::builder().all_git().all_build().emit()?;
-    Ok(())
+fn main() {
+    built::write_built_file().expect("Failed to acquire build-time information");
 }

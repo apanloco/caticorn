@@ -7,9 +7,9 @@ use bevy::prelude::*;
 use bevy::window::{PresentMode, PrimaryWindow, WindowTheme};
 use clap::Parser;
 
-const BUILD_VERSION: Option<&str> = option_env!("CARGO_PKG_VERSION");
-const BUILD_COMMIT: Option<&str> = option_env!("VERGEN_GIT_DESCRIBE");
-const BUILD_DATE: Option<&str> = option_env!("VERGEN_BUILD_TIMESTAMP");
+pub mod built {
+    include!(concat!(env!("OUT_DIR"), "/built.rs"));
+}
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -21,7 +21,7 @@ struct Cli {
 
 const PLAYER_SPEED: f32 = 600.0;
 const CANDY_SPEED: f32 = 250.0;
-const CANDY_SPAWN_TIMER_SECONDS: f32 = 0.33;
+const CANDY_SPAWN_TIMER_SECONDS: f32 = 0.66;
 const NUMBER_OF_INITIAL_CANDIES: usize = 3;
 
 #[derive(States, Default, Debug, Hash, Eq, PartialEq, Clone)]
@@ -253,10 +253,9 @@ pub fn init_setup(
 
     commands.spawn((
         TextBundle::from_section(
-            format!("mouse click to activate\n({} {} {})",
-                    BUILD_VERSION.as_ref().unwrap_or(&"?"),
-                    BUILD_COMMIT.as_ref().unwrap_or(&"?"),
-                    BUILD_DATE.as_ref().unwrap_or(&"?"),
+            format!("mouse click to activate\n({} {})",
+                    built::PKG_VERSION,
+                    built::GIT_COMMIT_HASH_SHORT.unwrap_or("?"),
             ),
             TextStyle {
                 font: asset_server.load("fonts/MesloLGS NF Regular.ttf"),
