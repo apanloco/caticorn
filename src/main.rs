@@ -444,10 +444,14 @@ pub fn gameplay_spawn_candy_timer(
     mut timer: ResMut<CandySpawnTimer>,
     window_query: Query<&Window, With<PrimaryWindow>>,
     candy_image: Res<CandyImage>,
+    keyboard_input: Res<Input<KeyCode>>,
 ) {
     let window = window_query.get_single().unwrap();
     timer.tick(time.delta());
     if timer.just_finished() {
+        spawn_candy(&mut commands, window, &candy_image);
+    }
+    if keyboard_input.pressed(KeyCode::O) {
         spawn_candy(&mut commands, window, &candy_image);
     }
 }
@@ -634,13 +638,11 @@ pub fn gameplay_player_candy_collision(
             let mut distance = player_transform
                 .translation
                 .distance(candy_transform.translation);
-            let half_size_player =
-                (player_image.size().x + player_image.size().x) / 4.0 * player_transform.scale.x;
-            let half_size_candy =
-                (candy_image.size().x + candy_image.size().x) / 4.0 * candy_transform.scale.x;
+            let half_size_player = player_image.size().x * player_transform.scale.x / 2.0;
+            let half_size_candy = candy_image.size().x * candy_transform.scale.x / 2.0;
             distance -= half_size_player;
             distance -= half_size_candy;
-            if distance < -25.0 {
+            if distance <= -20.0 {
                 audio.play(sound.clone());
                 commands.entity(candy_entity).despawn();
                 player_transform.scale.x += 0.03;
