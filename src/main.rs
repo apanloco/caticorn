@@ -101,28 +101,36 @@ fn main() {
     info!("args: {:?}", &args);
 
     App::new()
-        .add_plugins(DefaultPlugins.set(LogPlugin {
-            filter: "wgpu=warn,naga=warn".into(),
-            level: bevy::log::Level::DEBUG,
-        }).set(ImagePlugin::default_nearest()).set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "The Fat Caticorn".into(),
-                resolution: (800., 600.).into(),
-                present_mode: PresentMode::AutoVsync,
-                // Tells wasm to resize the window according to the available canvas
-                fit_canvas_to_parent: false,
-                // Tells wasm not to override default event handling, like F5, Ctrl+R etc.
-                prevent_default_event_handling: false,
-                window_theme: Some(WindowTheme::Dark),
+        .add_plugins(
+            DefaultPlugins
+                .set(LogPlugin {
+                    filter: "wgpu=warn,naga=warn".into(),
+                    level: bevy::log::Level::DEBUG,
+                })
+                .set(ImagePlugin::default_nearest())
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "The Fat Caticorn".into(),
+                        resolution: (800., 600.).into(),
+                        present_mode: PresentMode::AutoVsync,
+                        // Tells wasm to resize the window according to the available canvas
+                        fit_canvas_to_parent: false,
+                        // Tells wasm not to override default event handling, like F5, Ctrl+R etc.
+                        prevent_default_event_handling: false,
+                        window_theme: Some(WindowTheme::Dark),
 
-                ..default()
-            }),
-            ..default()
-        }))
+                        ..default()
+                    }),
+                    ..default()
+                }),
+        )
         .add_plugins(LogDiagnosticsPlugin::default())
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
         .insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
-        .insert_resource(CandySpawnTimer(Timer::from_seconds(CANDY_SPAWN_TIMER_SECONDS, TimerMode::Repeating)))
+        .insert_resource(CandySpawnTimer(Timer::from_seconds(
+            CANDY_SPAWN_TIMER_SECONDS,
+            TimerMode::Repeating,
+        )))
         .insert_resource(Music(None))
         .add_state::<GameState>()
         .add_systems(Startup, setup)
@@ -136,16 +144,11 @@ fn main() {
         .add_systems(OnExit(GameState::Poop), poop_teardown)
         .add_systems(
             Update,
-            (
-                init_wait_for_input,
-            ).run_if(in_state(GameState::Init)),
+            (init_wait_for_input,).run_if(in_state(GameState::Init)),
         )
         .add_systems(
             Update,
-            (
-                title_wait_for_keypress,
-                title_player_pulse
-            ).run_if(in_state(GameState::Title)),
+            (title_wait_for_keypress, title_player_pulse).run_if(in_state(GameState::Title)),
         )
         .add_systems(
             Update,
@@ -156,22 +159,15 @@ fn main() {
                 gameplay_candy_movement,
                 gameplay_spawn_candy_timer,
                 gameplay_update_candy_direction.after(gameplay_candy_movement),
-                gameplay_player_candy_collision.after(gameplay_player_movement).after(gameplay_candy_movement),
+                gameplay_player_candy_collision
+                    .after(gameplay_player_movement)
+                    .after(gameplay_candy_movement),
                 gameplay_confine_entity_movement.after(gameplay_player_candy_collision),
-            ).run_if(in_state(GameState::Playing)),
+            )
+                .run_if(in_state(GameState::Playing)),
         )
-        .add_systems(
-            Update,
-            (
-                end_sequence,
-            ).run_if(in_state(GameState::End)),
-        )
-        .add_systems(
-            Update,
-            (
-                poop_sequence,
-            ).run_if(in_state(GameState::Poop)),
-        )
+        .add_systems(Update, (end_sequence,).run_if(in_state(GameState::End)))
+        .add_systems(Update, (poop_sequence,).run_if(in_state(GameState::Poop)))
         .run();
 }
 
@@ -201,27 +197,25 @@ fn stop_music(mut music: ResMut<Music>, audio_sinks: Res<Assets<AudioSink>>) {
     }
 }
 
-pub fn setup(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-) {
+pub fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     info!("setup");
 
     commands.spawn(Camera2dBundle::default());
 
     commands.insert_resource(CandyChangeDirectionSound {
-        sounds: vec![asset_server.load("audio/candy_wall_collision_1.ogg"), asset_server.load("audio/candy_wall_collision_2.ogg")]
+        sounds: vec![
+            asset_server.load("audio/candy_wall_collision_1.ogg"),
+            asset_server.load("audio/candy_wall_collision_2.ogg"),
+        ],
     });
 
-    commands.insert_resource(PlayerCandyCollisionSound(asset_server.load("audio/caticorn_eat_candy.ogg")));
+    commands.insert_resource(PlayerCandyCollisionSound(
+        asset_server.load("audio/caticorn_eat_candy.ogg"),
+    ));
 
-    let player_image = PlayerImage(
-        asset_server.load("sprites/caticorn.png")
-    );
+    let player_image = PlayerImage(asset_server.load("sprites/caticorn.png"));
 
-    let candy_image = CandyImage(
-        asset_server.load("sprites/donut.png"),
-    );
+    let candy_image = CandyImage(asset_server.load("sprites/donut.png"));
 
     commands.spawn((
         SpriteBundle {
@@ -241,21 +235,19 @@ pub fn setup(
             asset_server.load("music/music_gameplay.ogg"),
             asset_server.load("music/music_title.ogg"),
             asset_server.load("audio/end_fart.ogg"),
-        ]
+        ],
     });
 }
 
-pub fn init_setup(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-) {
+pub fn init_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     info!("init_setup");
 
     commands.spawn((
         TextBundle::from_section(
-            format!("mouse click to activate\n({} {})",
-                    built::PKG_VERSION,
-                    built::GIT_COMMIT_HASH_SHORT.unwrap_or("?"),
+            format!(
+                "mouse click to activate\n({} {})",
+                built::PKG_VERSION,
+                built::GIT_COMMIT_HASH_SHORT.unwrap_or("?"),
             ),
             TextStyle {
                 font: asset_server.load("fonts/MesloLGS NF Regular.ttf"),
@@ -263,13 +255,13 @@ pub fn init_setup(
                 color: Color::WHITE,
             },
         )
-            .with_text_alignment(TextAlignment::Left)
-            .with_style(Style {
-                position_type: PositionType::Absolute,
-                bottom: Val::Px(5.0),
-                right: Val::Px(15.0),
-                ..default()
-            }),
+        .with_text_alignment(TextAlignment::Left)
+        .with_style(Style {
+            position_type: PositionType::Absolute,
+            bottom: Val::Px(5.0),
+            right: Val::Px(15.0),
+            ..default()
+        }),
         Text {},
     ));
 }
@@ -317,13 +309,13 @@ pub fn title_setup(
                 color: Color::WHITE,
             },
         )
-            .with_text_alignment(TextAlignment::Left)
-            .with_style(Style {
-                position_type: PositionType::Absolute,
-                bottom: Val::Px(5.0),
-                right: Val::Px(15.0),
-                ..default()
-            }),
+        .with_text_alignment(TextAlignment::Left)
+        .with_style(Style {
+            position_type: PositionType::Absolute,
+            bottom: Val::Px(5.0),
+            right: Val::Px(15.0),
+            ..default()
+        }),
         Text {},
     ));
 
@@ -549,7 +541,12 @@ pub fn gameplay_candy_movement(
             if distance < 25.0 {
                 distance = 25.0;
             }
-            let direction = Vec3::new(transform.translation.x - player_transform.translation.x, transform.translation.y - player_transform.translation.y, 0.0).normalize();
+            let direction = Vec3::new(
+                transform.translation.x - player_transform.translation.x,
+                transform.translation.y - player_transform.translation.y,
+                0.0,
+            )
+            .normalize();
             let force = 400.0 - distance;
 
             transform.translation += direction * time.delta_seconds() * force;
@@ -590,7 +587,8 @@ pub fn gameplay_update_candy_direction(
         if changed_direction {
             if time.elapsed_seconds() - candy.timestamp_changed_direction > 0.1 {
                 audio.play(sound.select_random());
-            } else {}
+            } else {
+            }
             candy.timestamp_changed_direction = time.elapsed_seconds();
         }
     }
@@ -633,9 +631,13 @@ pub fn gameplay_player_candy_collision(
             let Some(candy_image) = images.get(candy_image_handle) else {
                 continue;
             };
-            let mut distance = player_transform.translation.distance(candy_transform.translation);
-            let half_size_player = (player_image.size().x + player_image.size().x) / 4.0 * player_transform.scale.x;
-            let half_size_candy = (candy_image.size().x + candy_image.size().x) / 4.0 * candy_transform.scale.x;
+            let mut distance = player_transform
+                .translation
+                .distance(candy_transform.translation);
+            let half_size_player =
+                (player_image.size().x + player_image.size().x) / 4.0 * player_transform.scale.x;
+            let half_size_candy =
+                (candy_image.size().x + candy_image.size().x) / 4.0 * candy_transform.scale.x;
             distance -= half_size_player;
             distance -= half_size_candy;
             if distance < -25.0 {
@@ -656,7 +658,11 @@ pub fn end_sequence(
     debug!("end_sequence");
 
     if let Ok(mut transform) = player_query.get_single_mut() {
-        let direction_to_mid = Vec3::new(0.0 - transform.translation.x, 0.0 - transform.translation.y, 0.0);
+        let direction_to_mid = Vec3::new(
+            0.0 - transform.translation.x,
+            0.0 - transform.translation.y,
+            0.0,
+        );
         if direction_to_mid.length() < 1.0 {
             next_state.set(GameState::Poop);
         } else {
@@ -713,10 +719,12 @@ pub fn poop_teardown(
 ) {
     info!("poop_teardown");
     if let Ok(transform) = player_query.get_single() {
-        warn!("x: {}, y: {}", transform.translation.x, transform.translation.y);
+        warn!(
+            "x: {}, y: {}",
+            transform.translation.x, transform.translation.y
+        );
     }
     for entity in &entities {
         commands.entity(entity).despawn();
     }
 }
-
