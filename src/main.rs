@@ -1,7 +1,6 @@
 #![allow(clippy::type_complexity)]
 #![allow(clippy::too_many_arguments)]
 
-use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::log::LogPlugin;
 use bevy::prelude::*;
 use bevy::window::{PresentMode, PrimaryWindow, WindowTheme};
@@ -89,6 +88,7 @@ pub struct TitlePulseData {
     start_time: f32,
 }
 
+#[derive(Debug)]
 struct Rect {
     min_x: f32,
     max_x: f32,
@@ -101,75 +101,80 @@ fn main() {
 
     info!("args: {:?}", &args);
 
-    App::new()
-        .add_plugins(
-            DefaultPlugins
-                .set(LogPlugin {
-                    filter: "wgpu=warn,naga=warn".into(),
-                    level: bevy::log::Level::DEBUG,
-                })
-                .set(ImagePlugin::default_nearest())
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "The Fat Caticorn".into(),
-                        resolution: (800., 600.).into(),
-                        present_mode: PresentMode::AutoVsync,
-                        // Tells wasm to resize the window according to the available canvas
-                        fit_canvas_to_parent: false,
-                        // Tells wasm not to override default event handling, like F5, Ctrl+R etc.
-                        prevent_default_event_handling: false,
-                        window_theme: Some(WindowTheme::Dark),
+    let mut app = App::new();
 
-                        ..default()
-                    }),
+    app.add_plugins(
+        DefaultPlugins
+            .set(LogPlugin {
+                filter: "caticorn=info".into(),
+                level: bevy::log::Level::WARN,
+            })
+            .set(ImagePlugin::default_nearest())
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "The Fat Caticorn".into(),
+                    resolution: (800., 600.).into(),
+                    present_mode: PresentMode::AutoVsync,
+                    // Tells wasm to resize the window according to the available canvas
+                    fit_canvas_to_parent: false,
+                    // Tells wasm not to override default event handling, like F5, Ctrl+R etc.
+                    prevent_default_event_handling: false,
+                    window_theme: Some(WindowTheme::Dark),
+
                     ..default()
                 }),
+                ..default()
+            }),
+    )
+    .insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
+    .insert_resource(CandySpawnTimer(Timer::from_seconds(
+        CANDY_SPAWN_TIMER_SECONDS,
+        TimerMode::Repeating,
+    )))
+    .insert_resource(Music(None))
+    .add_state::<GameState>()
+    .add_systems(Startup, setup)
+    .add_systems(OnEnter(GameState::Init), init_setup)
+    .add_systems(OnExit(GameState::Init), init_teardown)
+    .add_systems(OnEnter(GameState::Title), title_setup)
+    .add_systems(OnExit(GameState::Title), title_teardown)
+    .add_systems(OnEnter(GameState::Playing), gameplay_setup)
+    .add_systems(OnExit(GameState::Playing), gameplay_teardown)
+    .add_systems(OnEnter(GameState::Poop), poop_setup)
+    .add_systems(OnExit(GameState::Poop), poop_teardown)
+    .add_systems(
+        Update,
+        (init_wait_for_input,).run_if(in_state(GameState::Init)),
+    )
+    .add_systems(
+        Update,
+        (title_wait_for_keypress, title_player_pulse).run_if(in_state(GameState::Title)),
+    )
+    .add_systems(
+        Update,
+        (
+            gameplay_exit_to_title,
+            gameplay_await_zero_candy,
+            gameplay_player_movement,
+            gameplay_candy_movement,
+            gameplay_spawn_candy_timer,
+            gameplay_update_candy_direction.after(gameplay_candy_movement),
+            gameplay_player_candy_collision
+                .after(gameplay_player_movement)
+                .after(gameplay_candy_movement),
+            gameplay_confine_entity_movement
+                .after(gameplay_player_candy_collision)
+                .after(gameplay_update_candy_direction),
         )
-        .add_plugins(LogDiagnosticsPlugin::default())
-        .add_plugins(FrameTimeDiagnosticsPlugin::default())
-        .insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
-        .insert_resource(CandySpawnTimer(Timer::from_seconds(
-            CANDY_SPAWN_TIMER_SECONDS,
-            TimerMode::Repeating,
-        )))
-        .insert_resource(Music(None))
-        .add_state::<GameState>()
-        .add_systems(Startup, setup)
-        .add_systems(OnEnter(GameState::Init), init_setup)
-        .add_systems(OnExit(GameState::Init), init_teardown)
-        .add_systems(OnEnter(GameState::Title), title_setup)
-        .add_systems(OnExit(GameState::Title), title_teardown)
-        .add_systems(OnEnter(GameState::Playing), gameplay_setup)
-        .add_systems(OnExit(GameState::Playing), gameplay_teardown)
-        .add_systems(OnEnter(GameState::Poop), poop_setup)
-        .add_systems(OnExit(GameState::Poop), poop_teardown)
-        .add_systems(
-            Update,
-            (init_wait_for_input,).run_if(in_state(GameState::Init)),
-        )
-        .add_systems(
-            Update,
-            (title_wait_for_keypress, title_player_pulse).run_if(in_state(GameState::Title)),
-        )
-        .add_systems(
-            Update,
-            (
-                gameplay_exit_to_title,
-                gameplay_await_zero_candy,
-                gameplay_player_movement,
-                gameplay_candy_movement,
-                gameplay_spawn_candy_timer,
-                gameplay_update_candy_direction.after(gameplay_candy_movement),
-                gameplay_player_candy_collision
-                    .after(gameplay_player_movement)
-                    .after(gameplay_candy_movement),
-                gameplay_confine_entity_movement.after(gameplay_player_candy_collision),
-            )
-                .run_if(in_state(GameState::Playing)),
-        )
-        .add_systems(Update, (end_sequence,).run_if(in_state(GameState::End)))
-        .add_systems(Update, (poop_sequence,).run_if(in_state(GameState::Poop)))
-        .run();
+            .run_if(in_state(GameState::Playing)),
+    )
+    .add_systems(Update, (end_sequence,).run_if(in_state(GameState::End)))
+    .add_systems(Update, (poop_sequence,).run_if(in_state(GameState::Poop)));
+
+    // app.add_plugins(bevy::diagnostic::LogDiagnosticsPlugin::default());
+    // app.add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin::default());
+
+    app.run();
 }
 
 fn calculate_confinement_rect(window: &Window, image: &Image, transform: &Transform) -> Rect {
@@ -457,7 +462,7 @@ pub fn gameplay_spawn_candy_timer(
     if timer.just_finished() {
         spawn_candy(&mut commands, window, &candy_image);
     }
-    if keyboard_input.pressed(KeyCode::O) {
+    if keyboard_input.just_pressed(KeyCode::O) {
         spawn_candy(&mut commands, window, &candy_image);
     }
 }
@@ -465,8 +470,8 @@ pub fn gameplay_spawn_candy_timer(
 fn spawn_candy(commands: &mut Commands, window: &Window, candy_image: &CandyImage) {
     let random_pos_x = rand::random::<f32>() * window.width() - window.width() / 2.0;
     let random_pos_y = rand::random::<f32>() * window.height() - window.height() / 2.0;
-    let random_dir_x = rand::random::<f32>();
-    let random_dir_y = rand::random::<f32>();
+    let random_dir_x = (rand::random::<f32>() * 2.0) - 1.0;
+    let random_dir_y = (rand::random::<f32>() * 2.0) - 1.0;
 
     commands.spawn((
         SpriteBundle {
@@ -584,12 +589,12 @@ pub fn gameplay_update_candy_direction(
         let mut changed_direction = false;
         let pos = transform.translation;
 
-        if pos.x < rect.min_x || pos.x > rect.max_x {
+        if pos.x <= rect.min_x || pos.x >= rect.max_x {
             candy.direction.x *= -1.0;
             changed_direction = true;
         }
 
-        if pos.y < rect.min_y || pos.y > rect.max_y {
+        if pos.y <= rect.min_y || pos.y >= rect.max_y {
             candy.direction.y *= -1.0;
             changed_direction = true;
         }
@@ -721,16 +726,9 @@ pub fn poop_sequence(
 
 pub fn poop_teardown(
     mut commands: Commands,
-    player_query: Query<&Transform, (With<Player>, Without<Candy>)>,
     entities: Query<Entity, (Without<Camera>, Without<Window>, Without<Player>)>,
 ) {
     info!("poop_teardown");
-    if let Ok(transform) = player_query.get_single() {
-        warn!(
-            "x: {}, y: {}",
-            transform.translation.x, transform.translation.y
-        );
-    }
     for entity in &entities {
         commands.entity(entity).despawn();
     }
