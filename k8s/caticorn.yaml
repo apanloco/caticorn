@@ -1,0 +1,56 @@
+kind: Namespace
+apiVersion: v1
+metadata:
+  name: caticorn
+  labels:
+    app: caticorn
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: caticorn
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: caticorn
+  template:
+    metadata:
+      labels:
+        app: caticorn
+    spec:
+      containers:
+        - name: caticorn
+          image: arn.ocir.io/axiirc3u3iv6/caticorn:latest
+          imagePullPolicy: Always
+      imagePullSecrets:
+        - name: ocirsecret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: caticorn
+  labels:
+    app: caticorn
+spec:
+  ports:
+    - port: 80
+      name: caticorn
+  selector:
+    app: caticorn
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: app-tls
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`caticorn.akerud.se`)
+      services:
+        - name: caticorn
+          port: 80
+  tls:
+    certResolver: le

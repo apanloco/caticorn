@@ -12,9 +12,8 @@ FROM nginx:alpine
 COPY --from=build /app/web_gen/* /usr/share/nginx/html/
 COPY wasm/* /usr/share/nginx/html/
 COPY assets /usr/share/nginx/html/assets
-COPY nginx/nginx.conf /etc/nginx/nginx.conf
 
-EXPOSE 8080
+EXPOSE 80
 
 CMD ["nginx", "-g", "daemon off;"]
 
