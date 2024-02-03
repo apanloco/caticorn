@@ -7,5 +7,5 @@
 !/Cargo.toml
 !/Cargo.lock
 !/nginx
-!/wasm
+!/web
 !/build.rs

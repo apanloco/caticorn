@@ -1,7 +1,7 @@
 FROM rust AS build
 
 RUN rustup target add wasm32-unknown-unknown
-RUN cargo install wasm-bindgen-cli
+RUN cargo install wasm-bindgen-cli --version 0.2.87
 WORKDIR /app
 COPY ./ /app
 RUN cargo build --target wasm32-unknown-unknown --profile deploy
@@ -14,7 +14,7 @@ RUN wasm-opt -O -ol 100 -s 100 -o web_gen/caticorn_bg.wasm web_gen/caticorn_bg.w
 FROM nginx:alpine
 
 COPY --from=build /app/web_gen/* /usr/share/nginx/html/
-COPY wasm/* /usr/share/nginx/html/
+COPY web/* /usr/share/nginx/html/
 COPY assets /usr/share/nginx/html/assets
 
 EXPOSE 80
